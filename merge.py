@@ -1,7 +1,30 @@
 import streamlit as st
 import PyPDF2
 import io
-import base64
+
+
+def merge_uploaded_pdfs(uploaded_files):
+    writer = PyPDF2.PdfWriter()
+    outline_warnings = []
+
+    try:
+        for pdf_file in uploaded_files:
+            pdf_file.seek(0)
+            try:
+                writer.append(pdf_file, import_outline=True)
+            except Exception as outline_error:
+                pdf_file.seek(0)
+                writer.append(pdf_file, import_outline=False)
+                outline_warnings.append(
+                    f"Signets ignorés pour « {pdf_file.name} » (fusion conservée) : {outline_error}"
+                )
+
+        output = io.BytesIO()
+        writer.write(output)
+        output.seek(0)
+        return output, outline_warnings
+    finally:
+        writer.close()
 
 st.set_page_config(page_title="Fusionneur de PDF", layout="centered")
 
@@ -26,27 +49,20 @@ if uploaded_files:
     # Bouton pour fusionner
     if st.button("Fusionner les PDF"):
         if len(uploaded_files) > 1:
-            merger = PyPDF2.PdfMerger()
-            
             try:
-                # Ajout de chaque PDF au merger
-                for pdf_file in uploaded_files:
-                    pdf_file.seek(0)
-                    merger.append(pdf_file)
-                
-                # Création du PDF fusionné
-                output = io.BytesIO()
-                merger.write(output)
-                merger.close()
-                output.seek(0)
+                output, outline_warnings = merge_uploaded_pdfs(uploaded_files)
                 
                 # Téléchargement du fichier
                 st.success("Fusion réussie! Cliquez ci-dessous pour télécharger le fichier fusionné.")
+                for warning in outline_warnings:
+                    st.warning(warning)
                 
-                # Création du lien de téléchargement
-                b64 = base64.b64encode(output.read()).decode()
-                href = f'<a href="data:application/pdf;base64,{b64}" download="document_fusionné.pdf">Télécharger le PDF fusionné</a>'
-                st.markdown(href, unsafe_allow_html=True)
+                st.download_button(
+                    "Télécharger le PDF fusionné",
+                    data=output.getvalue(),
+                    file_name="document_fusionné.pdf",
+                    mime="application/pdf",
+                )
                 
             except Exception as e:
                 st.error(f"Une erreur s'est produite lors de la fusion: {str(e)}")

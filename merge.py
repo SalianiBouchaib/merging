@@ -1,7 +1,6 @@
 import streamlit as st
-import PyPDF2
 import io
-import base64
+from pypdf import PdfWriter
 
 st.set_page_config(page_title="Fusionneur de PDF", layout="centered")
 
@@ -26,27 +25,46 @@ if uploaded_files:
     # Bouton pour fusionner
     if st.button("Fusionner les PDF"):
         if len(uploaded_files) > 1:
-            merger = PyPDF2.PdfMerger()
+            writer = PdfWriter()
+            fichiers_sans_signets = []
             
             try:
                 # Ajout de chaque PDF au merger
                 for pdf_file in uploaded_files:
                     pdf_file.seek(0)
-                    merger.append(pdf_file)
+                    pdf_data = pdf_file.getvalue()
+                    start_pages = len(writer.pages)
+
+                    try:
+                        writer.append(io.BytesIO(pdf_data), import_outline=True)
+                    except Exception:
+                        # Repli: ignorer les signets si leur import échoue pour ce document.
+                        while len(writer.pages) > start_pages:
+                            writer.remove_page(start_pages)
+                        writer.append(io.BytesIO(pdf_data), import_outline=False)
+                        fichiers_sans_signets.append(pdf_file.name)
                 
                 # Création du PDF fusionné
                 output = io.BytesIO()
-                merger.write(output)
-                merger.close()
+                writer.write(output)
+                writer.close()
                 output.seek(0)
                 
                 # Téléchargement du fichier
                 st.success("Fusion réussie! Cliquez ci-dessous pour télécharger le fichier fusionné.")
-                
-                # Création du lien de téléchargement
-                b64 = base64.b64encode(output.read()).decode()
-                href = f'<a href="data:application/pdf;base64,{b64}" download="document_fusionné.pdf">Télécharger le PDF fusionné</a>'
-                st.markdown(href, unsafe_allow_html=True)
+
+                if fichiers_sans_signets:
+                    st.warning(
+                        "Certains signets n'ont pas pu être importés : "
+                        + ", ".join(fichiers_sans_signets)
+                    )
+
+                st.download_button(
+                    "Télécharger le PDF fusionné",
+                    data=output.getvalue(),
+                    file_name="document_fusionné.pdf",
+                    mime="application/pdf",
+                )
                 
             except Exception as e:
                 st.error(f"Une erreur s'est produite lors de la fusion: {str(e)}")
